@@ -1,27 +1,31 @@
 (ns evok.core
-  (:require (evok [board :as board]
-                  [creature :as creature]
-                  [tick :as tick]))
+  (:require (evok [world :as world]))
   (:gen-class))
 
 (defn -main [& args]
   (println "Hello, World!")
-  (binding [board/*size* [40 60]]
-    (loop [creatures [(creature/genesis)]]
-      (println (board/display-board creatures))
-      (let [input (read-line)]
-        (if (pos? (count input))
-          (let [parsed-input (read-string input)]
-            (cond
-             
-             (= parsed-input 'q)
-             nil
-             
-             (number? parsed-input)
-             (recur (tick/tick-times creatures parsed-input))
+  (loop []
+    (world/show!)
+    (let [input (read-line)]
+      (if (pos? (count input))
+        (let [parsed-input (read-string input)]
+          (cond
 
-             :else
-             (do
-               (println "Unrecognized input")
-               (recur creatures))))
-          (recur (tick/tick creatures)))))))
+           ;; Quit
+           (= parsed-input 'q)
+           nil
+
+           ;; Tick X times
+           (number? parsed-input)
+           (do
+             (world/tick-times parsed-input)
+             (recur))
+
+           ;; Unrecognized input
+           :else
+           (do
+             (println "Unrecognized input")
+             (recur))))
+        (do
+          (world/tick)
+          (recur))))))

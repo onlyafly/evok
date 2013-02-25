@@ -109,28 +109,3 @@
              (dec i))
       cs)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; time points each tick:                                                   ;;
-;; - each creature has X number of time points per tick. Each instruction   ;;
-;; takes Y number of time points to execute                                 ;;
-;; - actions in the physical world take at least one tick to complete       ;;
-;; - instructions that are about flow control, pushing data on the stack,   ;;
-;; etc, are very inexpensive in time                                        ;;
-;;                                                                          ;;
-;; energy consumed by instructions:                                         ;;
-;; - each instruction has some cost in energy                               ;;
-;;  - physical instructions are expensive                                   ;;
-;;  - mental instructions are cheap                                         ;;
-;; - when a creature's energy runs out, it dies                             ;;
-;;                                                                          ;;
-;; example instructions                                                     ;;
-;; - reproduce (takes a value which is the amount of energy newborn         ;;
-;; starts with, which is deducted from parent)                              ;;
-;;    - the amount of instructions that must be copied to the child also    ;;
-;; consumes some enrgy from parent                                          ;;
-;; - gather-food from neighbor (marks the eatee as being eaten with a flag) ;;
-;;  - hopefully evolution will provide a defense against being eaten        ;;
-;; - check-status-of-flag
-;; - how much energy left?
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
