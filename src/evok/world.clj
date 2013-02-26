@@ -33,12 +33,13 @@
 ;; creature = record representing a creature
 ;; cagent = agent containing a coord (representing the coordinate of a creature)
 
-(defrecord Creature [uid energy display pointer code stack direction generation])
+(defrecord Creature [coord uid energy display pointer code stack direction generation])
 
-(defn create-cagent [coord & {:keys [uid energy display pointer code stack direction generation]}]
+(defn create-cagent [& {:keys [coord uid energy display pointer code stack direction generation]}]
+  {:pre [coord uid]} ;;FIX this might cause errors
   (dosync
     (let [l (location-by-coord coord)
-          c (Creature. uid energy display pointer code stack direction generation)]
+          c (Creature. coord uid energy display pointer code stack direction generation)]
       (alter l
              assoc :creature c)
       (agent coord))))
@@ -49,7 +50,7 @@
 (defn setup-cagents []
   (dosync
     ;; vector of cagents
-    [(create-cagent [0 0]
+    [(create-cagent :coord [0 0]
                     :uid (keyword (gensym "C0"))
                     :energy 100000
                     :display "O"
@@ -58,7 +59,7 @@
                     :stack []
                     :direction 2
                     :generation 0)
-     (create-cagent [(dec *size*) (dec *size*)]
+     (create-cagent :coord [(dec *size*) (dec *size*)]
                     :uid (keyword (gensym "CX"))
                     :energy 100000
                     :display "X"
@@ -194,16 +195,20 @@
         
         ;; Only deduct energy when procreation is successful
         (update-creature-at-location loc #(update-in % [:energy] - child-energy))
-        
-        (alter cagents-ref conj (create-cagent child-coord
-                                               :uid (keyword (gensym (str "C" (:display creature))))
-                                               :energy child-energy
-                                               :display (:display creature)
-                                               :pointer 0
-                                               :code (:code creature)
-                                               :stack []
-                                               :direction (rand-int (count direction-delta-table))
-                                               :generation (inc (:generation creature))))))
+
+        (try
+          (alter cagents-ref conj (create-cagent :coord child-coord
+                                                 :uid (keyword (gensym (str "C" (:display creature))))
+                                                 :energy child-energy
+                                                 :display (:display creature)
+                                                 :pointer 0
+                                                 :code (:code creature)
+                                                 :stack []
+                                                 :direction (rand-int (count direction-delta-table))
+                                                 :generation (inc (:generation creature))))
+          (catch Throwable e
+            (prn e)
+            (throw e)))))
     coord))
 
 ;;---------- Cagent functions
@@ -313,13 +318,22 @@
     (init))
   (do (show!) (println))
   (do (tick) (show!) (println "DONE"))
-  (do (tick-times 10) (show!) (println))
+  (do (tick-times 100) (show!) (println))
   (deref cagents-ref)
   (deref board-ref)
   (doseq [cagent @cagents-ref]
     (let [coord @cagent
           creature (:creature @(location-by-coord coord))]
       (prn :coord coord :creature creature)))
+  (doseq [cagent @cagents-ref]
+    (let [coord @cagent
+          creature (:creature @(location-by-coord coord))
+          err (agent-error cagent)]
+      (when err
+        (prn :coord coord)
+        (prn :creature creature)
+        (prn :err err)
+        (.printStackTrace err))))
   (deref (location-by-coord [0 1]))
   
   )
