@@ -302,16 +302,22 @@
     (ref-set cagents-ref (setup-cagents))))
 
 (comment
-  (use 'evok.world)
-  (init)
-  (tick)
-  (tick-times 100)
-  (show!)
+  (do
+    (load-file "/home/kevin/code/evok/src/evok/world.clj")
+    (use 'evok.world)
+    (init))
+  (do (show!) (println))
+  (do (tick) (show!) (println "DONE"))
+  (do (tick-times 10) (show!) (println))
+  (deref cagents-ref)
+  (deref board-ref)
   (doseq [cagent @cagents-ref]
-    (let [coord @cagent
+    (prn (:coord @cagent))
+    (let [{coord :coord} @cagent
           creature (:creature @(location-by-coord coord))]
+      (prn coord)
       (prn :creature creature)))
-  
+  (deref (location-by-coord [0 1]))
   )
 
 
