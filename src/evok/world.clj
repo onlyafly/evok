@@ -42,7 +42,12 @@
           c (Creature. coord uid energy display pointer code stack direction generation)]
       (alter l
              assoc :creature c)
-      (agent coord))))
+      (let [cagent (agent coord)]
+        (comment (set-validator! cagent
+                                 (fn [coord]
+                                   (and (vector? coord)
+                                        (= 2 (count coord))))))
+        cagent))))
 
 (defn genesis-code []
   [2 0 3 0 3 0 3 0 3 0 4 0])
