@@ -43,6 +43,17 @@
       (alter l
              assoc :creature c)
       (let [cagent (agent coord)]
+        ;;(set-error-mode! cagent :continue)
+        (set-error-handler! cagent
+                            (fn [a ex]
+                              (prn :cagent-error ex)
+                              ;;(prn :cause (.getCause ex))
+                              ;;(prn :bean (bean ex))
+                              ;;(prn :count-stackTrace (count (:stackTrace (bean ex))))
+                              ;;(prn :count-suppressed (count (:suppressed (bean ex))))
+                              ;;(prn (seq (.getStackTrace ex)))
+                              (.printStackTrace ex)
+                              ))        
         (comment (set-validator! cagent
                                  (fn [coord]
                                    (and (vector? coord)
@@ -201,25 +212,23 @@
         ;; Only deduct energy when procreation is successful
         (update-creature-at-location loc #(update-in % [:energy] - child-energy))
 
-        (try
-          (alter cagents-ref conj (create-cagent :coord child-coord
-                                                 :uid (keyword (gensym (str "C" (:display creature))))
-                                                 :energy child-energy
-                                                 :display (:display creature)
-                                                 :pointer 0
-                                                 :code (:code creature)
-                                                 :stack []
-                                                 :direction (rand-int (count direction-delta-table))
-                                                 :generation (inc (:generation creature))))
-          (catch Throwable e
-            (prn e)
-            (throw e)))))
+        (alter cagents-ref conj (create-cagent :coord child-coord
+                                               :uid (keyword (gensym (str "C" (:display creature))))
+                                               :energy child-energy
+                                               :display (:display creature)
+                                               :pointer 0
+                                               :code (:code creature)
+                                               :stack []
+                                               :direction (rand-int (count direction-delta-table))
+                                               :generation (inc (:generation creature))))))
     coord))
 
 ;;---------- Cagent functions
 ;; Return the new coord for the creature after the action
 
-(defmulti interpret (fn [_ _ val _] (if (zero? val) :zero :number)))
+(defmulti interpret (fn [_ _ val _]
+                      {:pre [val]}
+                      (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
   (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count instruction-table))
         command (instruction-table command-int)
@@ -247,27 +256,29 @@
     (update-creature-at-location loc increment-code-pointer)
     [coord new-time-points]))
 
+(defn shake-creature [coord loc creature time-points]
+  {:pre [coord loc creature time-points]}
+  (let [pointer (:pointer creature)
+        val (get-in creature [:code pointer])
+        [new-coord new-time-points] (interpret coord loc val time-points)
+        new-loc (location-by-coord new-coord)]
+    (if (pos? (:energy (:creature @new-loc)))
+      ;; Creature lives on
+      [new-coord new-time-points]
+      ;; Creature dies
+      (do
+        ;;FIX(prn :death (:creature @new-loc))
+        (set-creature-at-location new-loc nil)
+        (alter cagents-ref (fn [cagents]
+                             (remove #(= new-coord (deref %)) cagents)))
+        [new-coord 0]))))
+
 (defn shake-cagent [coord time-points]
+  {:pre [coord time-points]}
   (dosync
     (let [loc (location-by-coord coord)
-          cell @loc
-          c (:creature cell)
-          pointer (:pointer c)
-          val (get-in c [:code pointer])
-          ;;FIXfixFIX (when-not val (prn :val-nil coord loc))
-          [new-coord new-time-points] (interpret coord loc val time-points)
-          new-loc (location-by-coord new-coord)]
-      
-      (if (pos? (:energy (:creature @new-loc)))
-        ;; Creature lives on
-        [new-coord new-time-points]
-        ;; Creature dies
-        (do
-          ;;FIX(prn :death (:creature @new-loc))
-          (set-creature-at-location new-loc nil)
-          (alter cagents-ref (fn [cagents]
-                               (remove #(= new-coord (deref %)) cagents)))
-          [new-coord 0])))))
+          creature (:creature @loc)]
+      (shake-creature coord loc creature time-points))))
 
 (defn tick-cagent [coord time-points]
   (if (pos? time-points)
@@ -340,6 +351,23 @@
         (prn :err err)
         (.printStackTrace err))))
   (deref (location-by-coord [0 1]))
+
+  (do
+    (defn bar [n]
+      (/ n 0))
+    (defn foo [n]
+      (bar n))
+    (let [a (agent 0 :error-handler (fn [ag ex]
+                                      (prn :error ex)
+                                      (.printStackTrace ex)))]
+      (send a foo)
+      (Thread/sleep 100)
+      (prn :result @a)))
+  (do
+    (let [a (agent 0)]
+      (send a inc)
+      (Thread/sleep 100)
+      (prn :result @a)))
   
   )
 

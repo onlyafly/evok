@@ -8,4 +8,9 @@
   :aliases {"spec!" ["spec" "-a"]}
   :plugins [[speclj "2.4.0"]]
   :test-paths ["spec/"]
+  
+  ;; Fix problem with stack traces disappearing. See
+  ;; https://github.com/technomancy/leiningen/issues/1025
+  :jvm-opts ["-XX:TieredStopAtLevel=1"]
+  
   :main evok.core)
