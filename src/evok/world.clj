@@ -188,17 +188,19 @@
   (let [child-coord (delta-coord coord (:direction creature))
         child-loc (location-by-coord child-coord)]
     (when-not (:creature @child-loc)
-      ;; Only deduct energy when procreation is successful
-      (update-creature-at-location loc #(update-in % [:energy] - 10000))
-      
-      (alter cagents-ref conj (create-cagent child-coord
-                                             :uid (keyword (gensym (str "C" (:display creature))))
-                                             :energy 100000 ;TODO
-                                             :display (:display creature)
-                                             :pointer 0
-                                             :code (:code creature)
-                                             :stack []
-                                             :direction (rand-int (count direction-delta-table)))))
+      (let [child-energy (int (/ (:energy creature) 2))]
+        
+        ;; Only deduct energy when procreation is successful
+        (update-creature-at-location loc #(update-in % [:energy] - child-energy))
+        
+        (alter cagents-ref conj (create-cagent child-coord
+                                               :uid (keyword (gensym (str "C" (:display creature))))
+                                               :energy child-energy
+                                               :display (:display creature)
+                                               :pointer 0
+                                               :code (:code creature)
+                                               :stack []
+                                               :direction (rand-int (count direction-delta-table))))))
     coord))
 
 ;;---------- Cagent functions
@@ -318,6 +320,7 @@
       (prn coord)
       (prn :creature creature)))
   (deref (location-by-coord [0 1]))
+  
   )
 
 
