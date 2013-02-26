@@ -33,12 +33,12 @@
 ;; creature = record representing a creature
 ;; cagent = agent containing a coord (representing the coordinate of a creature)
 
-(defrecord Creature [uid energy display pointer code stack direction])
+(defrecord Creature [uid energy display pointer code stack direction generation])
 
-(defn create-cagent [coord & {:keys [uid energy display pointer code stack direction]}]
+(defn create-cagent [coord & {:keys [uid energy display pointer code stack direction generation]}]
   (dosync
     (let [l (location-by-coord coord)
-          c (Creature. uid energy display pointer code stack direction)]
+          c (Creature. uid energy display pointer code stack direction generation)]
       (alter l
              assoc :creature c)
       (agent coord))))
@@ -56,7 +56,8 @@
                     :pointer 0
                     :code (genesis-code)
                     :stack []
-                    :direction 2)
+                    :direction 2
+                    :generation 0)
      (create-cagent [(dec *size*) (dec *size*)]
                     :uid (keyword (gensym "CX"))
                     :energy 100000
@@ -64,7 +65,8 @@
                     :pointer 0
                     :code (genesis-code)
                     :stack []
-                    :direction 2)
+                    :direction 2
+                    :generation 0)
      ]))
 
 (comment
@@ -200,7 +202,8 @@
                                                :pointer 0
                                                :code (:code creature)
                                                :stack []
-                                               :direction (rand-int (count direction-delta-table))))))
+                                               :direction (rand-int (count direction-delta-table))
+                                               :generation (inc (:generation creature))))))
     coord))
 
 ;;---------- Cagent functions
@@ -314,11 +317,9 @@
   (deref cagents-ref)
   (deref board-ref)
   (doseq [cagent @cagents-ref]
-    (prn (:coord @cagent))
-    (let [{coord :coord} @cagent
+    (let [coord @cagent
           creature (:creature @(location-by-coord coord))]
-      (prn coord)
-      (prn :creature creature)))
+      (prn :coord coord :creature creature)))
   (deref (location-by-coord [0 1]))
   
   )
