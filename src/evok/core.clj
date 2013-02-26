@@ -4,6 +4,7 @@
 
 (defn -main [& args]
   (println "Hello, World!")
+  (world/init)
   (loop []
     (world/show!)
     (let [input (read-line)]
@@ -21,10 +22,18 @@
              (world/tick-times parsed-input)
              (recur))
 
+           ;; Show details about a cell
+           (and (vector? parsed-input)
+                (= 2 (count parsed-input)))
+           (do
+             (prn @(world/location-by-coord parsed-input))
+             (recur))
+
            ;; Unrecognized input
            :else
            (do
-             (println "Unrecognized input")
+             (println "Unrecognized input:")
+             (prn parsed-input)
              (recur))))
         (do
           (world/tick)
