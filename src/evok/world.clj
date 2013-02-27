@@ -16,7 +16,7 @@
 (defn setup-board []
   (mapv (fn [_]
           (mapv (fn [_]
-                  (ref (Cell. nil nil)))
+                  (ref (Cell. 0 nil)))
                 (range *size*)))
         (range *size*)))
 
@@ -133,6 +133,14 @@
     (update-in creature [:stack] pop)
     creature))
 
+(defn- energy-value-of-code [code]
+  {:pre [code (vector? code)]}
+  (int (/ (count code) 2)))
+
+(defn- energy-value-of-creature [^Creature c]
+  (+ (:energy c)
+     (energy-value-of-code (:code c))))
+
 (defn- increment-code-pointer [creature]
   (if (>= (inc (:pointer creature)) (count (:code creature)))
     (assoc creature :pointer 0)
@@ -143,6 +151,9 @@
 
 (defn- set-creature-at-location [loc c]
   (alter loc assoc :creature c))
+
+(defn- add-food-to-location [loc food]
+  (alter loc update-in [:food] + food))
 
 ;; Return an integer N: 0 <= N < bound
 (defn- as-bounded-integer [x bound]
@@ -267,6 +278,7 @@
       (do
         ;;FIX(prn :death (:creature @new-loc))
         (set-creature-at-location new-loc nil)
+        (add-food-to-location new-loc (energy-value-of-creature creature))
         ;; Return a nil as the cinfo, marking it for deletion
         [nil 0]))))
 
@@ -295,7 +307,9 @@
   (let [cell @loc]
     (if-let [creature (:creature cell)]
       (:display creature)
-      "-")))
+      (if (pos? (:food cell))
+        "#"
+        "-"))))
 
 (defn display-row [row]
   (apply str (map display-location row)))
