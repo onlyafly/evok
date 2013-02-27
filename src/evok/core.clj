@@ -16,6 +16,15 @@
            (= parsed-input 'q)
            nil
 
+           ;; Creature info
+           (= parsed-input 'i)
+           (do
+             (doseq [cagent @world/cagents-ref]
+               (let [coord (:coord @cagent)
+                     creature (:creature @(world/location-by-coord coord))]
+                 (prn :coord coord :creature creature)))
+             (recur))
+
            ;; Tick X times
            (number? parsed-input)
            (do

@@ -44,7 +44,20 @@
           creature (Creature. uid energy display pointer code stack direction generation)]
       (alter loc
              assoc :creature creature)
-      (ref (Cinfo. uid coord)))))
+
+      ;;FIX non-concurrent
+      (comment (ref (Cinfo. uid coord)))
+
+      ;;FIX concurrent
+      (agent (Cinfo. uid coord)
+             :error-handler (fn [a ex]
+                              (prn :cagent-error ex)
+                              ;;(prn :cause (.getCause ex))
+                              ;;(prn :bean (bean ex))
+                              ;;(prn :count-stackTrace (count (:stackTrace (bean ex))))
+                              ;;(prn :count-suppressed (count (:suppressed (bean ex))))
+                              ;;(prn (seq (.getStackTrace ex)))
+                              (.printStackTrace ex))))))
 
 (defn genesis-code []
   [2 0 3 0 3 0 3 0 3 0 4 0])
@@ -295,11 +308,19 @@
 (defn tick []
   (try
     ;; Update the cagents with the new cinfos
-    (doseq [cagent @cagents-ref]
-      (let [cinfo @cagent
-            new-cinfo (tick-cinfo cinfo time-points-per-tick)]
-        (dosync
-          (ref-set cagent new-cinfo))))
+    
+    ;; FIX non-concurrent
+    (comment
+      (doseq [cagent @cagents-ref]
+        (let [cinfo @cagent
+              new-cinfo (tick-cinfo cinfo time-points-per-tick)]
+          (dosync
+            (ref-set cagent new-cinfo)))))
+    
+    ;; FIX concurrent
+    (dorun (map #(send-off % tick-cinfo time-points-per-tick) @cagents-ref))
+    (dorun (map await @cagents-ref))
+    
     ;; Prune dead creatures (dead = cagent's value is nil)
     (dosync
       (alter cagents-ref (fn [cagents]
@@ -336,7 +357,7 @@
       (prn :coord coord :creature creature)))
 
   (do
-    (tick-times 2)
+    (tick-times 10)
     (show!)
     (println)
     (doseq [cagent @cagents-ref]
