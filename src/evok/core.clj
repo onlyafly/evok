@@ -22,7 +22,8 @@
              (doseq [cagent @world/cagents-ref]
                (let [coord (:coord @cagent)
                      creature (:creature @(world/location-by-coord coord))]
-                 (prn :coord coord :creature creature)))
+                 (prn :coord coord)
+                 (world/display-creature-info creature)))
              (recur))
 
            ;; Tick X times

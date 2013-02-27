@@ -1,6 +1,10 @@
 (ns evok.world)
 
+(declare random-instruction)
+
 (def time-points-per-tick 100)
+(def maximum-stack-size 1000)
+(def trimmed-stack-size 500)
 
 (def cagents-ref (ref nil))
 (def board-ref (ref nil))
@@ -36,19 +40,30 @@
 
 (defrecord Creature [uid energy display pointer code stack direction generation])
 
+(defn display-creature-info [c]
+  (let [{generation :generation
+         direction :direction
+         energy :energy
+         uid :uid} c]
+    (prn :creature
+         :uid uid
+         :energy energy
+         :direction direction
+         :generation generation)))
+
 (defrecord Cinfo [uid coord])
 
-(defn create-cagent [& {:keys [coord uid energy display pointer code stack direction generation]}]
-  (dosync
-    (let [loc (location-by-coord coord)
-          creature (Creature. uid energy display pointer code stack direction generation)]
-      (alter loc
-             assoc :creature creature)
+(defn create-creature [& {:keys [uid energy display pointer code stack direction generation]}]
+  (Creature. uid energy display pointer code stack direction generation))
 
-      ;;FIX non-concurrent
-      (comment (ref (Cinfo. uid coord)))
+(defn create-cagent [coord creature]
+  (let [loc (location-by-coord coord)
+        uid (:uid creature)]
+    (alter loc
+           assoc :creature creature)
 
-      ;;FIX concurrent
+    ;;FIX concurrent (MUST BE LAST)
+    (comment
       (agent (Cinfo. uid coord)
              :error-handler (fn [a ex]
                               (prn :cagent-error ex)
@@ -57,35 +72,49 @@
                               ;;(prn :count-stackTrace (count (:stackTrace (bean ex))))
                               ;;(prn :count-suppressed (count (:suppressed (bean ex))))
                               ;;(prn (seq (.getStackTrace ex)))
-                              (.printStackTrace ex))))))
+                              (.printStackTrace ex))))
+    
+    ;;FIX non-concurrent (MUST BE LAST)
+    (ref (Cinfo. uid coord))
+
+    ))
 
 (defn genesis-code []
-  [2 0 3 0 3 0 3 0 3 0 4 0])
+  ;;[2 0 3 0 3 0 3 0 3 0 5 0 4 0]
+  (vec (for [i (range 100)]
+         (if (zero? (rem i 5))
+           0
+           (random-instruction)))))
 
 (defn setup-cagents []
   {:post [(vector? %)]}
   (dosync
-    [(create-cagent :coord [0 0]
-                    :uid (keyword (gensym "C0"))
-                    :energy 100000
-                    :display "O"
-                    :pointer 0
-                    :code (genesis-code)
-                    :stack []
-                    :direction 2
-                    :generation 0)
-     (create-cagent :coord [(dec *size*) (dec *size*)]
-                    :uid (keyword (gensym "CX"))
-                    :energy 100000
-                    :display "X"
-                    :pointer 0
-                    :code (genesis-code)
-                    :stack []
-                    :direction 2
-                    :generation 0)
+    [(create-cagent [0 0]
+                    (create-creature 
+                     :uid (keyword (gensym "CO_"))
+                     :energy 100000
+                     :display "O"
+                     :pointer 0
+                     :code (genesis-code)
+                     :stack []
+                     :direction 2
+                     :generation 0))
+     (create-cagent [(dec *size*) (dec *size*)]
+                    (create-creature 
+                     :uid (keyword (gensym "CX_"))
+                     :energy 100000
+                     :display "X"
+                     :pointer 0
+                     :code (genesis-code)
+                     :stack []
+                     :direction 2
+                     :generation 0))
      ]))
 
 ;;---------- Command execution helpers
+
+(defn- random-instruction []
+  (rand-int 100000))
 
 (defn- adjust-to-bounds [n min max]
   (if (< n min)
@@ -120,13 +149,17 @@
      (adjust-to-bounds (+ y dy) 0 (dec *size*))]))
 
 (defn- stack-push [creature x]
-  (update-in creature [:stack]
-             conj x))
+  (let [c (if (> (count (:stack creature))
+                 maximum-stack-size)
+            (update-in creature [:stack] #(vec (take-last trimmed-stack-size %)))
+            creature)]
+    (update-in c [:stack]
+               conj x)))
 
 (defn- stack-peek [creature]
   (if (pos? (count (:stack creature)))
     (peek (:stack creature))
-    (rand-int 1000000)))
+    (random-instruction)))
 
 (defn- stack-pop [creature]
   (if (pos? (count (:stack creature)))
@@ -146,8 +179,11 @@
     (assoc creature :pointer 0)
     (update-in creature [:pointer] inc)))
 
-(defn- update-creature-at-location [loc f]
-  (alter loc update-in [:creature] f))
+(defn- update-creature-at-location [loc fn]
+  (alter loc update-in [:creature] fn))
+
+(defn- update-food-at-location [loc fn]
+  (alter loc update-in [:food] fn))
 
 (defn- set-creature-at-location [loc c]
   (alter loc assoc :creature c))
@@ -163,29 +199,41 @@
 
 ;;---------- Command execution
 
-(def instruction-table {0 :nop
+(def instruction-table {0 :nop ;zero is also the command instruction
                         1 :nop
                         2 :turn
                         3 :move
-                        4 :procreate})
+                        4 :procreate
+                        5 :eat})
 
-(def ^:private time-point-table {:move 100
-                                 :turn 100
-                                 :nop 1
-                                 :procreate 100})
+;; 100 time points per tick
+(let [time-point-table {:move 100
+                        :turn 100
+                        :nop 1
+                        :procreate 100
+                        :eat 100
+                        }]
+  (defn get-time-points [command]
+    {:post [(integer? %)]}
+    (time-point-table command)))
 
-(def ^:private energy-point-table {:move 100
-                                   :turn 100
-                                   :nop 0
-                                   ;; Procreate's energy should
-                                   ;; based on the individual
-                                   :procreate 0
-                                   })
+(let [energy-point-table {:move 100
+                          :turn 100
+                          :nop 0
+                          ;; Procreate's energy should
+                          ;; based on the individual
+                          :procreate 0
+                          :eat 100
+                          }]
+  (defn get-energy-points [command]
+    {:post [(integer? %)]}
+    (energy-point-table command)))
 
 (defmulti exec (fn [_coord _loc _creature command]
                  (command-type command)))
 
 (defmethod exec :move [coord loc creature _]
+  {:post [(vector? %)]}
   (let [new-coord (delta-coord coord (:direction creature))
         new-loc (location-by-coord new-coord)]
     ;;FIX(prn :move :coord coord)
@@ -201,6 +249,7 @@
         new-coord))))
 
 (defmethod exec :turn [coord loc creature _]
+  {:post [(vector? %)]}
   (let [new-direction (as-bounded-integer (stack-peek creature) (count direction-delta-table))]
     ;;FIX(prn :turn :coord coord :new-direction new-direction)
     (update-creature-at-location loc stack-pop)
@@ -210,27 +259,41 @@
     coord))
 
 (defmethod exec :nop [coord _loc _creature _]
+  {:post [(vector? %)]}
   coord)
 
 (defmethod exec :procreate [coord loc creature _]
+  {:post [(vector? %)]}
   (let [child-coord (delta-coord coord (:direction creature))
         child-loc (location-by-coord child-coord)]
     (when-not (:creature @child-loc)
-      (let [child-energy (int (/ (:energy creature) 2))]
+      (let [child-gift-energy (int (/ (:energy creature) 2))
+            child (create-creature :uid (keyword (gensym (str "C" (:display creature))))
+                                   :energy child-gift-energy
+                                   :display (:display creature)
+                                   :pointer 0
+                                   :code (:code creature)
+                                   :stack []
+                                   :direction (rand-int (count direction-delta-table))
+                                   :generation (inc (:generation creature)))
+            child-total-energy (energy-value-of-creature child)]
         
         ;; Only deduct energy when procreation is successful
-        (update-creature-at-location loc #(update-in % [:energy] - child-energy))
+        (update-creature-at-location loc #(update-in % [:energy] - child-total-energy))
 
-        (alter cagents-ref conj (create-cagent :coord child-coord
-                                               :uid (keyword (gensym (str "C" (:display creature))))
-                                               :energy child-energy
-                                               :display (:display creature)
-                                               :pointer 0
-                                               :code (:code creature)
-                                               :stack []
-                                               :direction (rand-int (count direction-delta-table))
-                                               :generation (inc (:generation creature))))))
+        (alter cagents-ref conj
+               (create-cagent child-coord
+                              child))))
     coord))
+
+(defmethod exec :eat [coord loc creature _]
+  {:post [(vector? %)]}
+  (when (pos? (:food @loc))
+    (prn :eat coord :food (:food @loc) :creature-uid (:uid creature) :creature-energy (:energy creature))
+    (update-food-at-location loc (fn [_] 0))
+    (update-creature-at-location loc
+                                 #(update-in % [:energy] + (:food @loc))))
+  coord)
 
 ;;---------- Cinfo functions
 
@@ -240,7 +303,7 @@
 (defmethod interpret :zero [coord loc _val time-points]
   (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count instruction-table))
         command (instruction-table command-int)
-        command-time-points (time-point-table command)
+        command-time-points (get-time-points command)
         new-time-points (- time-points command-time-points)]
     ;;(prn :interpret-zero :command command :time time-points :newtime new-time-points)
     (if (>= new-time-points 0)
@@ -251,7 +314,7 @@
         (let [creature (:creature @loc)
               new-coord (exec coord loc creature command)
               new-loc (location-by-coord new-coord)
-              command-energy-points (energy-point-table command)]
+              command-energy-points (get-energy-points command)]
           (update-creature-at-location new-loc #(update-in % [:energy] - command-energy-points))
           (update-creature-at-location new-loc increment-code-pointer)
           [new-coord new-time-points]))
@@ -328,16 +391,16 @@
     ;; Update the cagents with the new cinfos
     
     ;; FIX non-concurrent
-    (comment
-      (doseq [cagent @cagents-ref]
-        (let [cinfo @cagent
-              new-cinfo (tick-cinfo cinfo time-points-per-tick)]
-          (dosync
-            (ref-set cagent new-cinfo)))))
+    (doseq [cagent @cagents-ref]
+      (let [cinfo @cagent
+            new-cinfo (tick-cinfo cinfo time-points-per-tick)]
+        (dosync
+          (ref-set cagent new-cinfo))))
     
     ;; FIX concurrent
-    (dorun (map #(send-off % tick-cinfo time-points-per-tick) @cagents-ref))
-    (dorun (map await @cagents-ref))
+    (comment
+      (dorun (map #(send-off % tick-cinfo time-points-per-tick) @cagents-ref))
+      (dorun (map await @cagents-ref)))
     
     ;; Prune dead creatures (dead = cagent's value is nil)
     (dosync
