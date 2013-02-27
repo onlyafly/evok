@@ -1,6 +1,7 @@
 (ns evok.world
   (:require (evok [beagle :as beagle]
-                  [mutation :as mutation])))
+                  [mutation :as mutation]
+                  [util :as util])))
 
 (declare random-instruction)
 
@@ -46,12 +47,15 @@
   (let [{generation :generation
          direction :direction
          energy :energy
-         uid :uid} c]
+         uid :uid
+         code :code} c]
     (prn :creature
          :uid uid
          :energy energy
          :direction direction
-         :generation generation)))
+         :generation generation)
+    ;;(prn :raw-code code)
+    (prn :beagle-code (beagle/unbuild code))))
 
 (defrecord Cinfo [uid coord])
 
@@ -189,12 +193,6 @@
 (defn- add-food-to-location [loc food]
   (alter loc update-in [:food] + food))
 
-;; Return an integer N: 0 <= N < bound
-(defn- as-bounded-integer [x bound]
-  (if (integer? x)
-    (rem x bound)
-    (rand-int bound)))
-
 ;;---------- Command execution
 
 (defmulti exec (fn [_coord _loc _creature command]
@@ -218,7 +216,7 @@
 
 (defmethod exec :turn [coord loc creature _]
   {:post [(vector? %)]}
-  (let [new-direction (as-bounded-integer (stack-peek creature) (count direction-delta-table))]
+  (let [new-direction (util/as-bounded-integer (stack-peek creature) (count direction-delta-table))]
     ;;FIX(prn :turn :coord coord :new-direction new-direction)
     (update-creature-at-location loc stack-pop)
     (when new-direction
@@ -287,8 +285,7 @@
                       {:pre [val]}
                       (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
-  (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count beagle/instruction-table))
-        command (beagle/instruction-table command-int)
+  (let [command (beagle/instruction-from-integer (stack-peek (:creature @loc)))
         command-time-points (beagle/time-point-table command)
         new-time-points (- time-points command-time-points)]
     ;;(prn :interpret-zero :command command :time time-points :newtime new-time-points)

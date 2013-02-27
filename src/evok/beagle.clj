@@ -1,5 +1,6 @@
 (ns evok.beagle
-  (:require clojure.set))
+  (:require clojure.set
+            (evok [util :as util])))
 
 (declare build-item)
 
@@ -35,6 +36,15 @@
 
 (def name-table (clojure.set/map-invert instruction-table))
 
+;;---------- Decoding
+
+(defn instruction-from-integer [n]
+  (let [command-int (util/as-bounded-integer n (count instruction-table))
+        command (instruction-table command-int)]
+    command))
+
+;;---------- Building
+
 (defmulti build-item-method (fn [x] (cond (vector? x) :VECTOR
                                          (integer? x) :INTEGER
                                          (keyword? x) :KEYWORD
@@ -54,3 +64,30 @@
 
 (defn build [code]
   (vec (mapcat build-item code)))
+
+;;---------- Unbuilding
+
+(defn unwrap [result prev more]
+  (if (pos? (count more))
+    ;; More instructions
+    (let [[x & xs] more]
+      (if (zero? x)
+        ;; Next instruction is a command marker
+        (if prev
+          (recur (conj result (instruction-from-integer prev))
+                 nil
+                 xs)
+          (recur result
+                 x
+                 xs))
+        ;; Next instruction is a non-command
+        (recur result
+               x
+               xs)))    
+    ;; No instructions left
+    (if prev
+      (conj result prev)
+      result)))
+
+(defn unbuild [instructions]
+  (unwrap [] nil instructions))
