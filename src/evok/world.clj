@@ -82,7 +82,7 @@
     ))
 
 (defn genesis-code []
-  [2 0 3 0 3 0 3 0 3 0 5 0 4 0])
+  (beagle/build [:turn :turn :move :move :move :move :eat :procreate]))
 
 (defn setup-cagents []
   {:post [(vector? %)]}
@@ -197,29 +197,6 @@
 
 ;;---------- Command execution
 
-;; 100 time points per tick
-(let [time-point-table {:move 100
-                        :turn 100
-                        :nop 1
-                        :procreate 100
-                        :eat 100
-                        }]
-  (defn get-time-points [command]
-    {:post [(integer? %)]}
-    (time-point-table command)))
-
-(let [energy-point-table {:move 100
-                          :turn 100
-                          :nop 0
-                          ;; Procreate's energy should
-                          ;; based on the individual
-                          :procreate 0
-                          :eat 100
-                          }]
-  (defn get-energy-points [command]
-    {:post [(integer? %)]}
-    (energy-point-table command)))
-
 (defmulti exec (fn [_coord _loc _creature command]
                  (command-type command)))
 
@@ -278,10 +255,30 @@
 (defmethod exec :eat [coord loc creature _]
   {:post [(vector? %)]}
   (when (pos? (:food @loc))
-    (prn :eat coord :food (:food @loc) :creature-uid (:uid creature) :creature-energy (:energy creature))
+    ;;(prn :eat coord :food (:food @loc) :creature-uid (:uid creature) :creature-energy (:energy creature))
     (update-food-at-location loc (fn [_] 0))
     (update-creature-at-location loc
                                  #(update-in % [:energy] + (:food @loc))))
+  coord)
+
+(defmethod exec :startblock [coord loc creature _]
+  {:post [(vector? %)]}
+  ;; TODO
+  coord)
+
+(defmethod exec :endblock [coord loc creature _]
+  {:post [(vector? %)]}
+  ;; TODO
+  coord)
+
+(defmethod exec :if [coord loc creature _]
+  {:post [(vector? %)]}
+  ;; TODO
+  coord)
+
+(defmethod exec :display [coord loc creature _]
+  {:post [(vector? %)]}
+  ;; TODO
   coord)
 
 ;;---------- Cinfo functions
@@ -292,7 +289,7 @@
 (defmethod interpret :zero [coord loc _val time-points]
   (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count beagle/instruction-table))
         command (beagle/instruction-table command-int)
-        command-time-points (get-time-points command)
+        command-time-points (beagle/time-point-table command)
         new-time-points (- time-points command-time-points)]
     ;;(prn :interpret-zero :command command :time time-points :newtime new-time-points)
     (if (>= new-time-points 0)
@@ -303,7 +300,7 @@
         (let [creature (:creature @loc)
               new-coord (exec coord loc creature command)
               new-loc (location-by-coord new-coord)
-              command-energy-points (get-energy-points command)]
+              command-energy-points (beagle/energy-point-table command)]
           (update-creature-at-location new-loc #(update-in % [:energy] - command-energy-points))
           (update-creature-at-location new-loc increment-code-pointer)
           [new-coord new-time-points]))

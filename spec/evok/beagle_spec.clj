@@ -2,7 +2,7 @@
   (:use [speclj.core]
         [evok.beagle]))
 
-(describe "compile"
+(describe "build"
   (it "base case"
     (should= []
-             (compile []))))
+             (build []))))
