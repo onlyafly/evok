@@ -1,5 +1,6 @@
 (ns evok.world
-  (:require (evok [mutation :as mutation])))
+  (:require (evok [beagle :as beagle]
+                  [mutation :as mutation])))
 
 (declare random-instruction)
 
@@ -196,13 +197,6 @@
 
 ;;---------- Command execution
 
-(def instruction-table {0 :nop ;zero is also the command instruction
-                        1 :nop
-                        2 :turn
-                        3 :move
-                        4 :procreate
-                        5 :eat})
-
 ;; 100 time points per tick
 (let [time-point-table {:move 100
                         :turn 100
@@ -296,8 +290,8 @@
                       {:pre [val]}
                       (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
-  (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count instruction-table))
-        command (instruction-table command-int)
+  (let [command-int (as-bounded-integer (stack-peek (:creature @loc)) (count beagle/instruction-table))
+        command (beagle/instruction-table command-int)
         command-time-points (get-time-points command)
         new-time-points (- time-points command-time-points)]
     ;;(prn :interpret-zero :command command :time time-points :newtime new-time-points)
