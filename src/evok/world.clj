@@ -1,4 +1,5 @@
-(ns evok.world)
+(ns evok.world
+  (:require (evok [mutation :as mutation])))
 
 (declare random-instruction)
 
@@ -80,11 +81,7 @@
     ))
 
 (defn genesis-code []
-  ;;[2 0 3 0 3 0 3 0 3 0 5 0 4 0]
-  (vec (for [i (range 100)]
-         (if (zero? (rem i 5))
-           0
-           (random-instruction)))))
+  [2 0 3 0 3 0 3 0 3 0 5 0 4 0])
 
 (defn setup-cagents []
   {:post [(vector? %)]}
@@ -272,7 +269,7 @@
                                    :energy child-gift-energy
                                    :display (:display creature)
                                    :pointer 0
-                                   :code (:code creature)
+                                   :code (mutation/mutate-code (:code creature))
                                    :stack []
                                    :direction (rand-int (count direction-delta-table))
                                    :generation (inc (:generation creature)))
@@ -281,9 +278,7 @@
         ;; Only deduct energy when procreation is successful
         (update-creature-at-location loc #(update-in % [:energy] - child-total-energy))
 
-        (alter cagents-ref conj
-               (create-cagent child-coord
-                              child))))
+        (alter cagents-ref conj (create-cagent child-coord child))))
     coord))
 
 (defmethod exec :eat [coord loc creature _]
