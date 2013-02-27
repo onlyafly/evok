@@ -104,10 +104,14 @@
            :UNKNOWN)))
 
 ;; TODO maybe expand to 8 directions
-(def direction-delta-table {0 [0 -1] ; north
-                            1 [1 0]  ; east
-                            2 [0 1]  ; south
-                            3 [-1 0] ; west
+(def direction-delta-table {0 [0 -1]  ; north
+                            1 [1 0]   ; east
+                            2 [0 1]   ; south
+                            3 [-1 0]  ; west
+                            4 [-1 -1] ; NW
+                            5 [1 -1]  ; NE
+                            6 [-1 1]  ; SW
+                            7 [1 1]   ; SE
                             })
 
 (defn delta-coord [[x y] direction]
@@ -186,7 +190,7 @@
         new-coord))))
 
 (defmethod exec :turn [coord loc creature _]
-  (let [new-direction (as-bounded-integer (stack-peek creature) 4)]
+  (let [new-direction (as-bounded-integer (stack-peek creature) (count direction-delta-table))]
     ;;FIX(prn :turn :coord coord :new-direction new-direction)
     (update-creature-at-location loc stack-pop)
     (when new-direction
