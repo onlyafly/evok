@@ -31,9 +31,12 @@
 
 ;;---------- Creatures & cagents
 ;; creature = record representing a creature
-;; cagent = agent containing a coord (representing the coordinate of a creature)
+;; cagent = agent containing a CagentInfo record (representing the
+;;          coordinate of a creature) 
 
 (defrecord Creature [coord uid energy display pointer code stack direction generation])
+
+(defrecord CagentInfo [uid coord])
 
 (defn create-cagent [& {:keys [coord uid energy display pointer code stack direction generation]}]
   {:pre [coord uid]} ;;FIX this might cause errors
@@ -42,7 +45,7 @@
           c (Creature. coord uid energy display pointer code stack direction generation)]
       (alter l
              assoc :creature c)
-      (let [cagent (agent coord)]
+      (let [cagent (agent (CagentInfo. uid coord))]
         ;;(set-error-mode! cagent :continue)
         (set-error-handler! cagent
                             (fn [a ex]
@@ -256,38 +259,43 @@
     (update-creature-at-location loc increment-code-pointer)
     [coord new-time-points]))
 
-(defn shake-creature [coord loc creature time-points]
-  {:pre [coord loc creature time-points]}
+(defn shake-creature [cagent-info coord loc creature time-points]
+  {:pre [cagent-info coord loc creature time-points]}
   (let [pointer (:pointer creature)
         val (get-in creature [:code pointer])
         [new-coord new-time-points] (interpret coord loc val time-points)
-        new-loc (location-by-coord new-coord)]
+        new-loc (location-by-coord new-coord)
+        new-cagent-info (assoc cagent-info :coord new-coord)]
     (if (pos? (:energy (:creature @new-loc)))
       ;; Creature lives on
-      [new-coord new-time-points]
+      [new-cagent-info new-time-points]
       ;; Creature dies
       (do
         ;;FIX(prn :death (:creature @new-loc))
         (set-creature-at-location new-loc nil)
-        (alter cagents-ref (fn [cagents]
-                             (remove #(= new-coord (deref %)) cagents)))
-        [new-coord 0]))))
+        (comment (alter cagents-ref (fn [cagents]
+                                      (remove (fn [cagent]
+                                                (and (= new-coord (:coord @cagent))
+                                                     (= (:uid creature) (:uid @cagent))))
+                                              cagents))))
+        [new-cagent-info 0]))))
 
-(defn shake-cagent [coord time-points]
-  {:pre [coord time-points]}
+(defn shake-cagent [^CagentInfo cagent-info time-points]
+  {:pre [cagent-info time-points]}
   (dosync
-    (let [loc (location-by-coord coord)
+    (let [{coord :coord} cagent-info
+          loc (location-by-coord coord)
           creature (:creature @loc)]
-      (shake-creature coord loc creature time-points))))
+      (shake-creature cagent-info coord loc creature time-points))))
 
-(defn tick-cagent [coord time-points]
+(defn tick-cagent [^CagentInfo cagent-info time-points]
   (if (pos? time-points)
     ;; Time points remain in this tick
-    (let [[new-coord new-time-points] (shake-cagent coord time-points)]
-      (recur new-coord
+    (let [[new-cagent-info new-time-points] (shake-cagent cagent-info time-points)]
+      (recur new-cagent-info
              new-time-points))
     ;; No time points remain
-    coord))
+    cagent-info))
 
 ;;---------- Display
 
@@ -338,11 +346,11 @@
   (deref cagents-ref)
   (deref board-ref)
   (doseq [cagent @cagents-ref]
-    (let [coord @cagent
+    (let [coord (:coord @cagent)
           creature (:creature @(location-by-coord coord))]
       (prn :coord coord :creature creature)))
   (doseq [cagent @cagents-ref]
-    (let [coord @cagent
+    (let [coord (:coord @cagent)
           creature (:creature @(location-by-coord coord))
           err (agent-error cagent)]
       (when err
