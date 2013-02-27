@@ -29,46 +29,29 @@
       (nth y)
       (nth x)))
 
-;;---------- Creatures & cagents
+;;---------- Creatures & Cinfos
 ;; creature = record representing a creature
-;; cagent = agent containing a CagentInfo record (representing the
-;;          coordinate of a creature) 
+;; cinfo = record representing the current coord of a creature
+;; cagent = ref containing a cinfo
 
-(defrecord Creature [coord uid energy display pointer code stack direction generation])
+(defrecord Creature [uid energy display pointer code stack direction generation])
 
-(defrecord CagentInfo [uid coord])
+(defrecord Cinfo [uid coord])
 
 (defn create-cagent [& {:keys [coord uid energy display pointer code stack direction generation]}]
-  {:pre [coord uid]} ;;FIX this might cause errors
   (dosync
-    (let [l (location-by-coord coord)
-          c (Creature. coord uid energy display pointer code stack direction generation)]
-      (alter l
-             assoc :creature c)
-      (let [cagent (agent (CagentInfo. uid coord))]
-        ;;(set-error-mode! cagent :continue)
-        (set-error-handler! cagent
-                            (fn [a ex]
-                              (prn :cagent-error ex)
-                              ;;(prn :cause (.getCause ex))
-                              ;;(prn :bean (bean ex))
-                              ;;(prn :count-stackTrace (count (:stackTrace (bean ex))))
-                              ;;(prn :count-suppressed (count (:suppressed (bean ex))))
-                              ;;(prn (seq (.getStackTrace ex)))
-                              (.printStackTrace ex)
-                              ))        
-        (comment (set-validator! cagent
-                                 (fn [coord]
-                                   (and (vector? coord)
-                                        (= 2 (count coord))))))
-        cagent))))
+    (let [loc (location-by-coord coord)
+          creature (Creature. uid energy display pointer code stack direction generation)]
+      (alter loc
+             assoc :creature creature)
+      (ref (Cinfo. uid coord)))))
 
 (defn genesis-code []
   [2 0 3 0 3 0 3 0 3 0 4 0])
 
 (defn setup-cagents []
+  {:post [(vector? %)]}
   (dosync
-    ;; vector of cagents
     [(create-cagent :coord [0 0]
                     :uid (keyword (gensym "C0"))
                     :energy 100000
@@ -89,10 +72,7 @@
                     :generation 0)
      ]))
 
-(comment
-  )
-
-;;---------- Cagent helpers
+;;---------- Command execution helpers
 
 (defn- adjust-to-bounds [n min max]
   (if (< n min)
@@ -121,8 +101,6 @@
   (let [[dx dy] (direction-delta-table direction)]
     [(adjust-to-bounds (+ x dx) 0 (dec *size*))
      (adjust-to-bounds (+ y dy) 0 (dec *size*))]))
-
-;;---------- Command interpreter helpers
 
 (defn- stack-push [creature x]
   (update-in creature [:stack]
@@ -155,7 +133,7 @@
     (rem x bound)
     (rand-int bound)))
 
-;;---------- Execution functions
+;;---------- Command execution
 
 (def instruction-table {0 :nop
                         1 :nop
@@ -226,8 +204,7 @@
                                                :generation (inc (:generation creature))))))
     coord))
 
-;;---------- Cagent functions
-;; Return the new coord for the creature after the action
+;;---------- Cinfo functions
 
 (defmulti interpret (fn [_ _ val _]
                       {:pre [val]}
@@ -259,43 +236,41 @@
     (update-creature-at-location loc increment-code-pointer)
     [coord new-time-points]))
 
-(defn shake-creature [cagent-info coord loc creature time-points]
-  {:pre [cagent-info coord loc creature time-points]}
+(defn shake-creature [cinfo coord loc creature time-points]
+  {:pre [cinfo coord loc creature time-points]}
   (let [pointer (:pointer creature)
         val (get-in creature [:code pointer])
         [new-coord new-time-points] (interpret coord loc val time-points)
         new-loc (location-by-coord new-coord)
-        new-cagent-info (assoc cagent-info :coord new-coord)]
+        new-cinfo (assoc cinfo :coord new-coord)]
     (if (pos? (:energy (:creature @new-loc)))
       ;; Creature lives on
-      [new-cagent-info new-time-points]
+      [new-cinfo new-time-points]
       ;; Creature dies
       (do
         ;;FIX(prn :death (:creature @new-loc))
         (set-creature-at-location new-loc nil)
-        (comment (alter cagents-ref (fn [cagents]
-                                      (remove (fn [cagent]
-                                                (and (= new-coord (:coord @cagent))
-                                                     (= (:uid creature) (:uid @cagent))))
-                                              cagents))))
-        [new-cagent-info 0]))))
+        ;; Return a nil as the cinfo, marking it for deletion
+        [nil 0]))))
 
-(defn shake-cagent [^CagentInfo cagent-info time-points]
-  {:pre [cagent-info time-points]}
+(defn shake-cinfo [^Cinfo cinfo time-points]
+  {:pre [cinfo time-points]}
   (dosync
-    (let [{coord :coord} cagent-info
+    (let [{coord :coord} cinfo
           loc (location-by-coord coord)
           creature (:creature @loc)]
-      (shake-creature cagent-info coord loc creature time-points))))
+      ;;(prn :shake-cinfo cinfo coord loc creature)
+      (shake-creature cinfo coord loc creature time-points))))
 
-(defn tick-cagent [^CagentInfo cagent-info time-points]
-  (if (pos? time-points)
+(defn tick-cinfo [^Cinfo cinfo time-points]
+  (if (and (pos? time-points)
+           cinfo)
     ;; Time points remain in this tick
-    (let [[new-cagent-info new-time-points] (shake-cagent cagent-info time-points)]
-      (recur new-cagent-info
+    (let [[new-cinfo new-time-points] (shake-cinfo cinfo time-points)]
+      (recur new-cinfo
              new-time-points))
     ;; No time points remain
-    cagent-info))
+    cinfo))
 
 ;;---------- Display
 
@@ -319,7 +294,16 @@
 
 (defn tick []
   (try
-    (dorun (map #(send-off % tick-cagent time-points-per-tick) @cagents-ref))
+    ;; Update the cagents with the new cinfos
+    (doseq [cagent @cagents-ref]
+      (let [cinfo @cagent
+            new-cinfo (tick-cinfo cinfo time-points-per-tick)]
+        (dosync
+          (ref-set cagent new-cinfo))))
+    ;; Prune dead creatures (dead = cagent's value is nil)
+    (dosync
+      (alter cagents-ref (fn [cagents]
+                           (remove #(nil? @%) cagents))))
     (catch Exception e
       (.printStackTrace e))))
 
@@ -345,19 +329,21 @@
   (do (tick-times 100) (show!) (println))
   (deref cagents-ref)
   (deref board-ref)
+  (do (tick-times 100) (show!) (println))
   (doseq [cagent @cagents-ref]
     (let [coord (:coord @cagent)
           creature (:creature @(location-by-coord coord))]
       (prn :coord coord :creature creature)))
-  (doseq [cagent @cagents-ref]
+
+  (do
+    (tick-times 2)
+    (show!)
+    (println)
+    (doseq [cagent @cagents-ref]
     (let [coord (:coord @cagent)
-          creature (:creature @(location-by-coord coord))
-          err (agent-error cagent)]
-      (when err
-        (prn :coord coord)
-        (prn :creature creature)
-        (prn :err err)
-        (.printStackTrace err))))
+          creature (:creature @(location-by-coord coord))]
+      (prn :coord coord :creature creature))))
+  
   (deref (location-by-coord [0 1]))
 
   (do
