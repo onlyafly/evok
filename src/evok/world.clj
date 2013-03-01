@@ -3,7 +3,7 @@
                   [mutation :as mutation]
                   [util :as util])))
 
-(declare random-instruction)
+(declare random-raw-value)
 
 (def time-points-per-tick 100)
 (def maximum-stack-size 1000)
@@ -113,9 +113,9 @@
                      :generation 0))
      ]))
 
-;;---------- Command execution helpers
+;;---------- Instruction execution helpers
 
-(defn- random-instruction []
+(defn- random-raw-value []
   (rand-int 100000))
 
 (defn- adjust-to-bounds [n min max]
@@ -125,13 +125,13 @@
       max
       n)))
 
-(defn- command-type [command]
+(defn- instruction-type [v]
   (cond
-   (keyword? command) command
-   (number? command) :NUMBER
-   (string? command) :STRING
+   (keyword? v) v
+   (number? v) :NUMBER
+   (string? v) :STRING
    :else (do
-           (prn :unknown-command-type command)
+           (prn :unknown-instruction-type v)
            :UNKNOWN)))
 
 ;; TODO maybe expand to 8 directions
@@ -161,7 +161,7 @@
 (defn- stack-peek [creature]
   (if (pos? (count (:stack creature)))
     (peek (:stack creature))
-    (random-instruction)))
+    (random-raw-value)))
 
 (defn- stack-pop [creature]
   (if (pos? (count (:stack creature)))
@@ -193,10 +193,10 @@
 (defn- add-food-to-location [loc food]
   (alter loc update-in [:food] + food))
 
-;;---------- Command execution
+;;---------- Instruction execution
 
-(defmulti exec (fn [_coord _loc _creature command]
-                 (command-type command)))
+(defmulti exec (fn [_coord _loc _creature instruction]
+                 (instruction-type instruction)))
 
 (defmethod exec :move [coord loc creature _]
   {:post [(vector? %)]}
@@ -285,20 +285,20 @@
                       {:pre [val]}
                       (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
-  (let [command (beagle/instruction-from-integer (stack-peek (:creature @loc)))
-        command-time-points (beagle/time-point-table command)
-        new-time-points (- time-points command-time-points)]
-    ;;(prn :interpret-zero :command command :time time-points :newtime new-time-points)
+  (let [instruction (beagle/raw-value->instruction (stack-peek (:creature @loc)))
+        instruction-time-points (beagle/time-point-table instruction)
+        new-time-points (- time-points instruction-time-points)]
+    ;;(prn :interpret-zero :instruction instruction :time time-points :newtime new-time-points)
     (if (>= new-time-points 0)
       (do
-        ;; SIGNIFICANT ORDERING: instruction must be popped off prior
+        ;; SIGNIFICANT ORDERING: raw value must be popped off prior
         ;; to execution
-        (update-creature-at-location loc stack-pop) ; pop the instruction
+        (update-creature-at-location loc stack-pop) ; pop the raw-value
         (let [creature (:creature @loc)
-              new-coord (exec coord loc creature command)
+              new-coord (exec coord loc creature instruction)
               new-loc (location-by-coord new-coord)
-              command-energy-points (beagle/energy-point-table command)]
-          (update-creature-at-location new-loc #(update-in % [:energy] - command-energy-points))
+              instruction-energy-points (beagle/energy-point-table instruction)]
+          (update-creature-at-location new-loc #(update-in % [:energy] - instruction-energy-points))
           (update-creature-at-location new-loc increment-code-pointer)
           [new-coord new-time-points]))
       [coord 0])))
@@ -451,19 +451,8 @@
   )
 
 
+;; TODO
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; time points each tick:                                                   ;;
-;; - each creature has X number of time points per tick. Each instruction   ;;
-;; takes Y number of time points to execute                                 ;;
-;; - actions in the physical world take at least one tick to complete       ;;
-;; - instructions that are about flow control, pushing data on the stack,   ;;
-;; etc, are very inexpensive in time                                        ;;
-;;                                                                          ;;
-;; energy consumed by instructions:                                         ;;
-;; - each instruction has some cost in energy                               ;;
-;;  - physical instructions are expensive                                   ;;
-;;  - mental instructions are cheap                                         ;;
-;; - when a creature's energy runs out, it dies                             ;;
 ;;                                                                          ;;
 ;; example instructions                                                     ;;
 ;; - reproduce (takes a value which is the amount of energy newborn         ;;
@@ -475,5 +464,4 @@
 ;; - check-status-of-flag
 ;; - how much energy left?
 ;; - kin recognition
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

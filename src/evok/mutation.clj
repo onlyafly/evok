@@ -1,7 +1,7 @@
 (ns evok.mutation)
 
 (def ^:private mutation-likelyhood 2)
-(def ^:private command-instruction-likelyhood 5)
+(def ^:private command-marker-likelyhood 5)
 (def ^:private addition-to-modification-ratio 2)
 (def ^:private deletion-to-replacement-ratio 3)
 (def ^:private mutation-min-spacing 3)
@@ -11,7 +11,7 @@
   (+ min (rand-int (inc (- max min)))))
 
 (defn- random-instruction []
-  (if (zero? (rand-int command-instruction-likelyhood))
+  (if (zero? (rand-int command-marker-likelyhood))
     0
     (rand-int 100000)))
 
