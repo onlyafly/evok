@@ -125,7 +125,9 @@
 
 (defn- instruction-type [v]
   (cond
-   (keyword? v) v
+   (keyword? v) (if (contains? beagle/logic-instructions v)
+                  :LOGIC
+                  v)
    (number? v) :NUMBER
    (string? v) :STRING
    :else (do
@@ -211,6 +213,14 @@
 (defmulti exec (fn [_coord _loc _creature instruction]
                  (instruction-type instruction)))
 
+(defmethod exec :nop [coord _loc _creature _]
+  coord)
+
+(defmethod exec :LOGIC [coord loc creature instruction]
+  (update-creature-at-location loc (fn [creature]
+                                     (beagle/exec-instruction creature instruction)))
+  coord)
+
 (defmethod exec :move [coord loc creature _]
   {:post [(vector? %)]}
   (let [new-coord (delta-coord coord (:direction creature))
@@ -235,10 +245,6 @@
       (update-creature-at-location loc
                                    #(assoc % :direction new-direction)))
     coord))
-
-(defmethod exec :nop [coord _loc _creature _]
-  {:post [(vector? %)]}
-  coord)
 
 (defmethod exec :procreate [coord loc creature _]
   {:post [(vector? %)]}
@@ -271,24 +277,6 @@
     (update-creature-at-location loc
                                  #(update-in % [:energy] + (:food @loc))))
   coord)
-
-;; Unconditional jump. Move to location specified by top of datastack
-;; (raw value insterpreted as address within range of code length)
-(defmethod exec :jump [coord loc creature _]
-  {:post [(vector? %)]}
-  (let [top (do-stack-pop loc :dstack)
-        address (interpret-as-address top creature)]
-    ;; Decrement so that after the pointer is incremented, it points
-    ;; to the correct location
-    (update-creature-at-location loc #(assoc % :pointer (dec address))))
-  coord)
-
-;; REFACTOR
-(comment
-  (defmethod exec :display [coord loc creature _]
-    {:post [(vector? %)]}
-    ;; TODO
-    coord))
 
 ;;---------- Cinfo functions
 

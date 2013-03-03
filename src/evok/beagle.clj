@@ -39,6 +39,8 @@
                               [:eat            100            100]
                               ])
 
+(def logic-instructions #{:jump})
+
 (def energy-point-table (into {} (for [d instruction-descriptors]
                                    [(nth d 0) ; instruction keyword
                                     (nth d 2) ; energy points
@@ -114,3 +116,47 @@
 
 (defn unbuild [raw-code]
   (unwrap [] nil raw-code))
+
+;;---------- Execution helpers
+
+(defn- random-raw-value []
+  (rand-int 100000))
+
+(defn- interpret-as-address [n creature]
+  (util/interpret-to-bound n (count (:code creature))))
+
+(defn- creature? [creature]
+  ;; TODO
+  true)
+
+(defn- mpop [m stack-name]
+  {:pre [(keyword? stack-name)
+         (contains? #{:rstack :dstack} stack-name)]}
+  (if (pos? (count (stack-name m)))
+    (update-in m [stack-name] pop)
+    m))
+
+(defn- mpeek [m stack-name]
+  {:pre [(keyword? stack-name)
+         (contains? #{:rstack :dstack} stack-name)]}
+  (if (pos? (count (stack-name m)))
+    (peek (stack-name m))
+    (random-raw-value)))
+
+;;---------- Logic execution
+
+(defmulti exec (fn [machine instruction] instruction))
+
+;; Unconditional jump. Move to location specified by top of datastack
+;; (raw value insterpreted as address within range of code length)
+(defmethod exec :jump [m i]
+  (let [m1 (mpop m :dstack)
+        top (mpeek m :dstack)
+        address (interpret-as-address top m1)]
+    ;; Decrement so that after the pointer is incremented, it points
+    ;; to the correct location
+    (assoc m1 :pointer (dec address))))
+
+(defn exec-instruction [machine instruction]
+  {:post [(creature? %)]}
+  (exec machine instruction))
