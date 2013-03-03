@@ -22,6 +22,11 @@
 
 (declare build-item)
 
+;;---------- Constants
+
+(def maximum-stack-size 100)
+(def trimmed-stack-size 50)
+
 ;;---------- Instruction information
 
 (def command-marker 0)
@@ -119,29 +124,40 @@
 
 ;;---------- Execution helpers
 
-(defn- random-raw-value []
+(defn random-raw-value []
   (rand-int 100000))
 
-(defn- interpret-as-address [n creature]
-  (util/interpret-to-bound n (count (:code creature))))
+(defn interpret-as-address [n m]
+  (util/interpret-to-bound n (count (:code m))))
 
-(defn- creature? [creature]
+(defn- machine? [machine]
   ;; TODO
   true)
 
-(defn- mpop [m stack-name]
+(defn mpop [m stack-name]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
   (if (pos? (count (stack-name m)))
     (update-in m [stack-name] pop)
     m))
 
-(defn- mpeek [m stack-name]
+;; FIX should commands that need a value from the stack use a random
+;; value when the stack is empty or should they fail?
+(defn mpeek [m stack-name]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
   (if (pos? (count (stack-name m)))
     (peek (stack-name m))
     (random-raw-value)))
+
+(defn mpush [m stack-name val]
+  {:pre [(keyword? stack-name)
+         (contains? #{:rstack :dstack} stack-name)]}
+  (-> (if (> (count (stack-name m))
+             maximum-stack-size)
+        (update-in m [stack-name] #(vec (take-last trimmed-stack-size %)))
+        m)
+      (update-in [stack-name] conj val)))
 
 ;;---------- Logic execution
 
@@ -158,5 +174,5 @@
     (assoc m1 :pointer (dec address))))
 
 (defn exec-instruction [machine instruction]
-  {:post [(creature? %)]}
+  {:post [(machine? %)]}
   (exec machine instruction))

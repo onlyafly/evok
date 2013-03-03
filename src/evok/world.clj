@@ -3,11 +3,7 @@
                   [mutation :as mutation]
                   [util :as util])))
 
-(declare random-raw-value)
-
 (def time-points-per-tick 100)
-(def maximum-stack-size 100)
-(def trimmed-stack-size 50)
 
 (def cagents-ref (ref nil))
 (def board-ref (ref nil))
@@ -30,7 +26,6 @@
 ;;--------- Location
 ;; location = ref containing a Cell
 ;; coord = vector containing xy-coordinates
-
 (defn location-by-coord [[x y :as _coord]]
   (-> @board-ref
       (nth y)
@@ -120,16 +115,12 @@
 
 ;;---------- Instruction execution helpers
 
-(defn- random-raw-value []
-  (rand-int 100000))
-
 (defn- instruction-type [v]
   (cond
    (keyword? v) (if (contains? beagle/logic-instructions v)
                   :LOGIC
                   v)
    (number? v) :NUMBER
-   (string? v) :STRING
    :else (do
            (prn :unknown-instruction-type v)
            :UNKNOWN)))
@@ -149,29 +140,6 @@
   (let [[dx dy] (direction-delta-table direction)]
     [(util/adjust-to-bounds (+ x dx) 0 (dec *size*))
      (util/adjust-to-bounds (+ y dy) 0 (dec *size*))]))
-
-(defn- stack-push [creature stack-name x]
-  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
-  (let [c (if (> (count (stack-name creature))
-                 maximum-stack-size)
-            (update-in creature [stack-name] #(vec (take-last trimmed-stack-size %)))
-            creature)]
-    (update-in c [stack-name]
-               conj x)))
-
-;; FIX should commands that need a value from the stack use a random
-;; value when the stack is empty or should they fail?
-(defn- stack-peek [creature stack-name]
-  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
-  (if (pos? (count (stack-name creature)))
-    (peek (stack-name creature))
-    (random-raw-value)))
-
-(defn- stack-pop [creature stack-name]
-  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
-  (if (pos? (count (stack-name creature)))
-    (update-in creature [stack-name] pop)
-    creature))
 
 (defn- energy-value-of-code [code]
   {:pre [code (vector? code)]}
@@ -198,14 +166,11 @@
 (defn- add-food-to-location [loc food]
   (alter loc update-in [:food] + food))
 
-(defn- interpret-as-address [n creature]
-  (util/interpret-to-bound n (count (:code creature))))
-
 (defn- do-stack-pop [loc stack-name]
   {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
   (let [creature (:creature @loc)
-        val (stack-peek (:code creature) stack-name)]
-    (update-creature-at-location loc #(stack-pop % stack-name))
+        val (beagle/mpeek (:code creature) stack-name)]
+    (update-creature-at-location loc #(beagle/mpop % stack-name))
     val))
 
 ;;---------- Instruction execution
@@ -284,7 +249,7 @@
                       {:pre [val]}
                       (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
-  (let [instruction (beagle/raw-value->instruction (stack-peek (:creature @loc) :dstack))
+  (let [instruction (beagle/raw-value->instruction (beagle/mpeek (:creature @loc) :dstack))
         instruction-time-points (beagle/time-point-table instruction)
         new-time-points (- time-points instruction-time-points)]
     ;;(prn :interpret-zero :instruction instruction :time time-points :newtime new-time-points)
@@ -292,7 +257,7 @@
       (do
         ;; SIGNIFICANT ORDERING: raw value must be popped off prior
         ;; to execution
-        (update-creature-at-location loc #(stack-pop % :dstack)) ; pop the raw-value
+        (update-creature-at-location loc #(beagle/mpop % :dstack)) ; pop the raw-value
         (let [creature (:creature @loc)
               new-coord (exec coord loc creature instruction)
               new-loc (location-by-coord new-coord)
@@ -305,7 +270,7 @@
   (let [new-time-points (dec time-points)]
     ;;(prn :interpret-number :number number :time time-points)
     (update-creature-at-location loc
-                                 #(stack-push % :dstack number))
+                                 #(beagle/mpush % :dstack number))
     (update-creature-at-location loc increment-code-pointer)
     [coord new-time-points]))
 
