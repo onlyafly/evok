@@ -5,6 +5,7 @@
 ;; http://cs.stackexchange.com/a/995
 ;;
 ;; Definitions:
+;;
 ;;  instruction = A command executed by the Evok VM, expressed as a
 ;;                Clojure keyword
 ;;  opcode = An integer value representing an instruction
@@ -21,11 +22,15 @@
 
 (declare build-item)
 
+;;---------- Instruction information
+
 (def command-marker 0)
 
 ;;                            Instruction      TimePoints     EnergyPoints
 (def instruction-descriptors [[:nop            1              0]   ; zero is also the command marker
                               [:jump           1              0]   ; zero is also the command marker
+                              ;;[:call           1              0]
+                              ;;[:ret            1              0]
                               ;;[:if             1              1]
                               ;;[:display        100            100]
                               [:turn           100            100]
