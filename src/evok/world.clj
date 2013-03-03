@@ -18,7 +18,7 @@
 
 (defn- random-food []
   (if (zero? (rand-int 4))
-    (rand-int 1000)
+    (rand-int 100000)
     0))
 
 (defn setup-board []
@@ -193,7 +193,7 @@
 (defn- do-stack-pop [loc stack-name]
   {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
   (let [creature (:creature @loc)
-        val (beagle/mpeek (:code creature) stack-name)]
+        val (beagle/mpeek creature stack-name)]
     (update-creature-at-location loc #(beagle/mpop % stack-name))
     val))
 
@@ -215,9 +215,9 @@
   coord)
 
 (defmethod exec :move [coord loc creature _]
-  {:post [(vector? %)]}
   (let [new-coord (delta-coord coord (:direction creature))
         new-loc (location-by-coord new-coord)]
+    (prn :move (:uid creature) :from coord :to new-coord)
     ;;FIX(prn :move :coord coord)
 
     (if (:creature @new-loc)
@@ -231,7 +231,6 @@
         new-coord))))
 
 (defmethod exec :turn [coord loc creature _]
-  {:post [(vector? %)]}
   (let [new-direction (util/interpret-to-bound (do-stack-pop loc :dstack) (count direction-delta-table))]
     (prn :turn :coord coord :new-direction new-direction :creature (:uid creature))
     (when new-direction
@@ -240,7 +239,6 @@
     coord))
 
 (defmethod exec :procreate [coord loc creature _]
-  {:post [(vector? %)]}
   (let [child-coord (delta-coord coord (:direction creature))
         child-loc (location-by-coord child-coord)]
     (when-not (:creature @child-loc)
@@ -263,17 +261,22 @@
     coord))
 
 (defmethod exec :eat [coord loc creature _]
-  {:post [(vector? %)]}
   (when (pos? (:food @loc))
-    ;;(prn :eat coord :food (:food @loc) :creature-uid (:uid creature) :creature-energy (:energy creature))
-    (update-food-at-location loc (fn [_] 0))
-    (update-creature-at-location loc
-                                 #(update-in % [:energy] + (:food @loc))))
+    (let [cell @loc]
+      (prn :eat-before (:uid creature)
+           :food (:food @loc)
+           :energy-before (:energy creature))
+      
+      (update-food-at-location loc (fn [_] 0))
+      (update-creature-at-location loc
+                                   #(update-in % [:energy] + (:food cell)))
+      (prn :eat-after (:uid creature)
+           :energy-after (:energy (:creature @loc)))))
+  
   coord)
 
 ;; Pushes the direction of food around the creature
 (defmethod exec :smell [coord loc creature _]
-  {:post [(vector? %)]}
   (let [food-neighbors (filter (fn [[_ food]] (pos? food))
                                (for [d (keys direction-delta-table)]
                                  (let [c (delta-coord coord d)
@@ -291,6 +294,11 @@
          :creature (:uid creature)
          :neigh food-neighbors))
   coord)
+
+(defn- exec-instruction [coord loc creature instruction]
+  {:pre [creature]
+   :post [(vector? %)]}
+  (exec coord loc creature instruction))
 
 ;;---------- Cinfo functions
 

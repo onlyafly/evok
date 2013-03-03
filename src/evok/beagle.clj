@@ -138,13 +138,13 @@
   (zero? (util/interpret-to-bound n 2)))
 
 (defn- machine? [machine]
-  ;; TODO
-  true)
+  (and machine
+       (:uid machine)))
 
 (defn mpop [m stack-name]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
-  (prn :mpop (:uid m) stack-name :stack (stack-name m))
+  ;;FIX (prn :mpop (:uid m) stack-name :stack (stack-name m))
   (if (pos? (count (stack-name m)))
     (update-in m [stack-name] pop)
     m))
@@ -152,9 +152,10 @@
 ;; FIX should commands that need a value from the stack use a random
 ;; value when the stack is empty or should they fail?
 (defn mpeek [m stack-name]
-  {:pre [(keyword? stack-name)
+  {:pre [(machine? m)
+         (keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
-  (prn :mpeek (:uid m) stack-name :stack (stack-name m))
+  ;;FIX (prn :mpeek (:uid m) stack-name :stack (stack-name m))  
   (if (pos? (count (stack-name m)))
     (peek (stack-name m))
     (random-raw-value)))
@@ -162,7 +163,7 @@
 (defn mpush [m stack-name val]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
-  (prn :mpush (:uid m) stack-name :stack (stack-name m) :val val)
+  ;;FIX (prn :mpush (:uid m) stack-name :stack (stack-name m) :val val)
   (-> (if (> (count (stack-name m))
              maximum-stack-size)
         (update-in m [stack-name] #(vec (take-last trimmed-stack-size %)))
