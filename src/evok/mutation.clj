@@ -10,7 +10,7 @@
 (defn rand-in-range [min max]
   (+ min (rand-int (inc (- max min)))))
 
-(defn- random-instruction []
+(defn random-instruction []
   (if (zero? (rand-int command-marker-likelyhood))
     0
     (rand-int 100000)))

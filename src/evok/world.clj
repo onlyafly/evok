@@ -6,8 +6,8 @@
 (declare random-raw-value)
 
 (def time-points-per-tick 100)
-(def maximum-stack-size 1000)
-(def trimmed-stack-size 500)
+(def maximum-stack-size 100)
+(def trimmed-stack-size 50)
 
 (def cagents-ref (ref nil))
 (def board-ref (ref nil))
@@ -41,7 +41,7 @@
 ;; cinfo = record representing the current coord of a creature
 ;; cagent = ref containing a cinfo
 
-(defrecord Creature [uid energy display pointer code stack direction generation])
+(defrecord Creature [uid energy display pointer code rstack dstack direction generation])
 
 (defn display-creature-info [c]
   (let [{generation :generation
@@ -59,8 +59,8 @@
 
 (defrecord Cinfo [uid coord])
 
-(defn create-creature [& {:keys [uid energy display pointer code stack direction generation]}]
-  (Creature. uid energy display pointer code stack direction generation))
+(defn create-creature [& {:keys [uid energy display pointer code rstack dstack direction generation]}]
+  (Creature. uid energy display pointer code rstack dstack direction generation))
 
 (defn create-cagent [coord creature]
   (let [loc (location-by-coord coord)
@@ -86,7 +86,10 @@
     ))
 
 (defn genesis-code []
-  (beagle/build [:turn :turn :move :move :move :move :eat :procreate]))
+  (mapv (fn [_] (mutation/random-instruction))
+        (range 100))
+  ;;FIX(beagle/build [:turn :turn :move :move :move :move :eat :procreate])
+  )
 
 (defn setup-cagents []
   {:post [(vector? %)]}
@@ -94,11 +97,12 @@
     [(create-cagent [0 0]
                     (create-creature 
                      :uid (keyword (gensym "CO_"))
-                     :energy 100000
+                     :energy 10000000
                      :display "O"
                      :pointer 0
                      :code (genesis-code)
-                     :stack []
+                     :rstack []
+                     :dstack []
                      :direction 2
                      :generation 0))
      (create-cagent [(dec *size*) (dec *size*)]
@@ -108,7 +112,8 @@
                      :display "X"
                      :pointer 0
                      :code (genesis-code)
-                     :stack []
+                     :rstack []
+                     :dstack []
                      :direction 2
                      :generation 0))
      ]))
@@ -117,13 +122,6 @@
 
 (defn- random-raw-value []
   (rand-int 100000))
-
-(defn- adjust-to-bounds [n min max]
-  (if (< n min)
-    min
-    (if (> n max)
-      max
-      n)))
 
 (defn- instruction-type [v]
   (cond
@@ -147,25 +145,30 @@
 
 (defn delta-coord [[x y] direction]
   (let [[dx dy] (direction-delta-table direction)]
-    [(adjust-to-bounds (+ x dx) 0 (dec *size*))
-     (adjust-to-bounds (+ y dy) 0 (dec *size*))]))
+    [(util/adjust-to-bounds (+ x dx) 0 (dec *size*))
+     (util/adjust-to-bounds (+ y dy) 0 (dec *size*))]))
 
-(defn- stack-push [creature x]
-  (let [c (if (> (count (:stack creature))
+(defn- stack-push [creature stack-name x]
+  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
+  (let [c (if (> (count (stack-name creature))
                  maximum-stack-size)
-            (update-in creature [:stack] #(vec (take-last trimmed-stack-size %)))
+            (update-in creature [stack-name] #(vec (take-last trimmed-stack-size %)))
             creature)]
-    (update-in c [:stack]
+    (update-in c [stack-name]
                conj x)))
 
-(defn- stack-peek [creature]
-  (if (pos? (count (:stack creature)))
-    (peek (:stack creature))
+;; FIX should commands that need a value from the stack use a random
+;; value when the stack is empty or should they fail?
+(defn- stack-peek [creature stack-name]
+  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
+  (if (pos? (count (stack-name creature)))
+    (peek (stack-name creature))
     (random-raw-value)))
 
-(defn- stack-pop [creature]
-  (if (pos? (count (:stack creature)))
-    (update-in creature [:stack] pop)
+(defn- stack-pop [creature stack-name]
+  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
+  (if (pos? (count (stack-name creature)))
+    (update-in creature [stack-name] pop)
     creature))
 
 (defn- energy-value-of-code [code]
@@ -193,6 +196,16 @@
 (defn- add-food-to-location [loc food]
   (alter loc update-in [:food] + food))
 
+(defn- interpret-as-address [n creature]
+  (util/interpret-to-bound n (count (:code creature))))
+
+(defn- do-stack-pop [loc stack-name]
+  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
+  (let [creature (:creature @loc)
+        val (stack-peek (:code creature) stack-name)]
+    (update-creature-at-location loc #(stack-pop % stack-name))
+    val))
+
 ;;---------- Instruction execution
 
 (defmulti exec (fn [_coord _loc _creature instruction]
@@ -216,9 +229,8 @@
 
 (defmethod exec :turn [coord loc creature _]
   {:post [(vector? %)]}
-  (let [new-direction (util/as-bounded-integer (stack-peek creature) (count direction-delta-table))]
+  (let [new-direction (util/interpret-to-bound (do-stack-pop loc :dstack) (count direction-delta-table))]
     ;;FIX(prn :turn :coord coord :new-direction new-direction)
-    (update-creature-at-location loc stack-pop)
     (when new-direction
       (update-creature-at-location loc
                                    #(assoc % :direction new-direction)))
@@ -239,7 +251,8 @@
                                    :display (:display creature)
                                    :pointer 0
                                    :code (mutation/mutate-code (:code creature))
-                                   :stack []
+                                   :dstack []
+                                   :rstack []
                                    :direction (rand-int (count direction-delta-table))
                                    :generation (inc (:generation creature)))
             child-total-energy (energy-value-of-creature child)]
@@ -259,25 +272,23 @@
                                  #(update-in % [:energy] + (:food @loc))))
   coord)
 
-(defmethod exec :startblock [coord loc creature _]
+;; Unconditional jump. Move to location specified by top of datastack
+;; (raw value insterpreted as address within range of code length)
+(defmethod exec :jump [coord loc creature _]
   {:post [(vector? %)]}
-  ;; TODO
+  (let [top (do-stack-pop loc :dstack)
+        address (interpret-as-address top creature)]
+    ;; Decrement so that after the pointer is incremented, it points
+    ;; to the correct location
+    (update-creature-at-location loc #(assoc % :pointer (dec address))))
   coord)
 
-(defmethod exec :endblock [coord loc creature _]
-  {:post [(vector? %)]}
-  ;; TODO
-  coord)
-
-(defmethod exec :if [coord loc creature _]
-  {:post [(vector? %)]}
-  ;; TODO
-  coord)
-
-(defmethod exec :display [coord loc creature _]
-  {:post [(vector? %)]}
-  ;; TODO
-  coord)
+;; REFACTOR
+(comment
+  (defmethod exec :display [coord loc creature _]
+    {:post [(vector? %)]}
+    ;; TODO
+    coord))
 
 ;;---------- Cinfo functions
 
@@ -285,7 +296,7 @@
                       {:pre [val]}
                       (if (zero? val) :zero :number)))
 (defmethod interpret :zero [coord loc _val time-points]
-  (let [instruction (beagle/raw-value->instruction (stack-peek (:creature @loc)))
+  (let [instruction (beagle/raw-value->instruction (stack-peek (:creature @loc) :dstack))
         instruction-time-points (beagle/time-point-table instruction)
         new-time-points (- time-points instruction-time-points)]
     ;;(prn :interpret-zero :instruction instruction :time time-points :newtime new-time-points)
@@ -293,7 +304,7 @@
       (do
         ;; SIGNIFICANT ORDERING: raw value must be popped off prior
         ;; to execution
-        (update-creature-at-location loc stack-pop) ; pop the raw-value
+        (update-creature-at-location loc #(stack-pop % :dstack)) ; pop the raw-value
         (let [creature (:creature @loc)
               new-coord (exec coord loc creature instruction)
               new-loc (location-by-coord new-coord)
@@ -306,7 +317,7 @@
   (let [new-time-points (dec time-points)]
     ;;(prn :interpret-number :number number :time time-points)
     (update-creature-at-location loc
-                                 #(stack-push % number))
+                                 #(stack-push % :dstack number))
     (update-creature-at-location loc increment-code-pointer)
     [coord new-time-points]))
 
@@ -465,3 +476,9 @@
 ;; - how much energy left?
 ;; - kin recognition
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO
+;;
+;; - Record the actual instructions executed during the lifetime of a
+;;   creature to see patterns.
+;; - Maybe empty stack upon reaching end of code?

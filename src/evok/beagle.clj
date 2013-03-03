@@ -25,10 +25,9 @@
 
 ;;                            Instruction      TimePoints     EnergyPoints
 (def instruction-descriptors [[:nop            1              0]   ; zero is also the command marker
-                              [:startblock     1              1]
-                              [:endblock       1              1]
-                              [:if             1              1]
-                              [:display        100            100]
+                              [:jump           1              0]   ; zero is also the command marker
+                              ;;[:if             1              1]
+                              ;;[:display        100            100]
                               [:turn           100            100]
                               [:move           100            100]
                               [:procreate      0              100] ; energy cost calculated dynamically
@@ -54,7 +53,7 @@
 ;;---------- Decoding
 
 (defn raw-value->instruction [raw-value]
-  (let [opcode (util/as-bounded-integer raw-value (count instruction-descriptors))]
+  (let [opcode (util/interpret-to-bound raw-value (count instruction-descriptors))]
     (opcode->instruction-table opcode)))
 
 ;;---------- Building
@@ -95,9 +94,14 @@
                  x
                  xs))
         ;; Next raw value is a non-command marker
-        (recur result
-               x
-               xs)))    
+        (if prev
+          (recur (conj result prev)
+                 x
+                 xs)
+          (recur result
+                 x
+                 xs))
+        ))    
     ;; No raw values left
     (if prev
       (conj result prev)
