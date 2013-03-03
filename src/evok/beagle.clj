@@ -31,28 +31,32 @@
 
 (def command-marker 0)
 
-;;                            Instruction      TimePoints     EnergyPoints
-(def instruction-descriptors [[:nop            1              0]   ; zero is also the command marker
-                              [:jump           1              0]   ; zero is also the command marker
-                              ;;[:call           1              0]
-                              ;;[:ret            1              0]
-                              ;;[:if             1              1]
-                              ;;[:display        100            100]
-                              [:turn           100            100]
-                              [:move           100            100]
-                              [:procreate      0              100] ; energy cost calculated dynamically
-                              [:eat            100            100]
+;;                            Instruction      Logic?     TimePoints     EnergyPoints
+(def instruction-descriptors [[:nop            false      1              0]   ; zero is also the command marker
+                              [:jump           true       1              1]
+                              [:call           true       1              1]
+                              [:ret            true       1              1]
+                              [:jumpif         true       1              1]
+                              [:rand           true       1              1]
+                              [:turn           false      100            100]
+                              [:move           false      100            100]
+                              [:procreate      false      0              100] ; energy cost calculated dynamically
+                              [:eat            false      100            100]
+                              [:smell          false      10             10]
                               ])
 
-(def logic-instructions #{:jump})
+(def logic-instructions (set (map #(nth % 0) ; instruction keyword
+                                  (filter (fn [desc]
+                                            (nth desc 1)) ; logic instruction?
+                                          instruction-descriptors))))
 
 (def energy-point-table (into {} (for [d instruction-descriptors]
                                    [(nth d 0) ; instruction keyword
-                                    (nth d 2) ; energy points
+                                    (nth d 3) ; energy points
                                     ])))
 (def time-point-table (into {} (for [d instruction-descriptors]
                                  [(nth d 0) ; instruction keyword
-                                  (nth d 1) ; time points
+                                  (nth d 2) ; time points
                                   ])))
 (def opcode->instruction-table (into {} (for [i (range (count instruction-descriptors))]
                                   (let [d (nth instruction-descriptors i)]
@@ -130,6 +134,9 @@
 (defn interpret-as-address [n m]
   (util/interpret-to-bound n (count (:code m))))
 
+(defn interpret-as-boolean [n]
+  (zero? (util/interpret-to-bound n 2)))
+
 (defn- machine? [machine]
   ;; TODO
   true)
@@ -137,6 +144,7 @@
 (defn mpop [m stack-name]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
+  (prn :mpop (:uid m) stack-name :stack (stack-name m))
   (if (pos? (count (stack-name m)))
     (update-in m [stack-name] pop)
     m))
@@ -146,6 +154,7 @@
 (defn mpeek [m stack-name]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
+  (prn :mpeek (:uid m) stack-name :stack (stack-name m))
   (if (pos? (count (stack-name m)))
     (peek (stack-name m))
     (random-raw-value)))
@@ -153,6 +162,7 @@
 (defn mpush [m stack-name val]
   {:pre [(keyword? stack-name)
          (contains? #{:rstack :dstack} stack-name)]}
+  (prn :mpush (:uid m) stack-name :stack (stack-name m) :val val)
   (-> (if (> (count (stack-name m))
              maximum-stack-size)
         (update-in m [stack-name] #(vec (take-last trimmed-stack-size %)))
@@ -165,13 +175,51 @@
 
 ;; Unconditional jump. Move to location specified by top of datastack
 ;; (raw value insterpreted as address within range of code length)
-(defmethod exec :jump [m i]
-  (let [m1 (mpop m :dstack)
-        top (mpeek m :dstack)
-        address (interpret-as-address top m1)]
-    ;; Decrement so that after the pointer is incremented, it points
-    ;; to the correct location
-    (assoc m1 :pointer (dec address))))
+(defmethod exec :jump [m _]
+  (let [destination (interpret-as-address (mpeek m :dstack) m)]
+    (-> m
+        (mpop :dstack)
+        ;; Decrement so that after the pointer is incremented, it points
+        ;; to the correct location
+        (assoc :pointer (dec destination)))))
+
+;; Push the pointer address + 1 to the rstack
+(defmethod exec :call [m _]
+  (let [destination-address (interpret-as-address (mpeek m :dstack) m)
+        return-address (:pointer m)]
+    (-> m
+        (mpop :dstack)
+        (mpush :rstack (inc return-address))
+        ;; Decrement so that after the pointer is incremented, it points
+        ;; to the correct location
+        (assoc :pointer (dec destination-address)))))
+
+;; Jump to the address popped off of the rstack
+(defmethod exec :ret [m _]
+  (let [return-address (interpret-as-address (mpeek m :rstack) m)]
+    (-> m
+        (mpop :rstack)
+        ;; Decrement so that after the pointer is incremented, it points
+        ;; to the correct location
+        (assoc :pointer (dec return-address)))))
+
+;; Pop two items off the dstack. If the top item is true, jump to the
+;; address given by the second item.
+(defmethod exec :jumpif [m _]
+  (let [predicate (interpret-as-boolean (mpeek m :dstack))
+        m1 (mpop m :dstack)
+        address (interpret-as-address (mpeek m1 :dstack) m1)
+        m2 (mpop m1 :dstack)]
+    (if predicate
+      ;; Decrement so that after the pointer is incremented, it points
+      ;; to the correct location
+      (assoc m2 :pointer (dec address))
+      m2)))
+
+;; Push a random value on the dstack
+(defmethod exec :rand [m _]
+  (prn :rand (:uid m))
+  (mpush m :dstack (random-raw-value)))
 
 (defn exec-instruction [machine instruction]
   {:post [(machine? %)]}

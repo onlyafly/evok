@@ -16,10 +16,15 @@
 
 (def ^:dynamic *size* 20)
 
+(defn- random-food []
+  (if (zero? (rand-int 4))
+    (rand-int 1000)
+    0))
+
 (defn setup-board []
   (mapv (fn [_]
           (mapv (fn [_]
-                  (ref (Cell. 0 nil)))
+                  (ref (Cell. (random-food) nil)))
                 (range *size*)))
         (range *size*)))
 
@@ -43,14 +48,16 @@
          direction :direction
          energy :energy
          uid :uid
-         code :code} c]
+         code :code
+         dstack :dstack} c]
     (prn :creature
          :uid uid
          :energy energy
          :direction direction
          :generation generation)
     ;;(prn :raw-code code)
-    (prn :beagle-code (beagle/unbuild code))))
+    (prn :beagle-code (beagle/unbuild code))
+    (prn :dstack dstack)))
 
 (defrecord Cinfo [uid coord])
 
@@ -86,32 +93,49 @@
   ;;FIX(beagle/build [:turn :turn :move :move :move :move :eat :procreate])
   )
 
+(defn genesis-finder-code []
+  (beagle/build [;; find food
+                 :smell :turn :move :eat
+                 :rand :turn :move
+                 :smell :turn :move :eat
+                 :rand :turn :move
+                 :procreate
+                 :smell :turn :move :eat
+                 :rand :turn :move
+                 :smell :turn :move :eat
+                 :rand :turn :move
+                 :procreate
+                 ])
+  )
+
 (defn setup-cagents []
   {:post [(vector? %)]}
   (dosync
-    [(create-cagent [0 0]
+    [
+     (create-cagent [(dec *size*) (dec *size*)]
+                    (create-creature 
+                     :uid (keyword (gensym "CX_"))
+                     :energy 10000
+                     :display "X"
+                     :pointer 0
+                     :code (genesis-finder-code)
+                     :rstack []
+                     :dstack []
+                     :direction 2
+                     :generation 0))
+     ]))
+
+(comment (create-cagent [0 0]
                     (create-creature 
                      :uid (keyword (gensym "CO_"))
-                     :energy 10000000
+                     :energy 100000
                      :display "O"
                      :pointer 0
                      :code (genesis-code)
                      :rstack []
                      :dstack []
                      :direction 2
-                     :generation 0))
-     (create-cagent [(dec *size*) (dec *size*)]
-                    (create-creature 
-                     :uid (keyword (gensym "CX_"))
-                     :energy 100000
-                     :display "X"
-                     :pointer 0
-                     :code (genesis-code)
-                     :rstack []
-                     :dstack []
-                     :direction 2
-                     :generation 0))
-     ]))
+                     :generation 0)))
 
 ;;---------- Instruction execution helpers
 
@@ -127,13 +151,13 @@
 
 ;; TODO maybe expand to 8 directions
 (def direction-delta-table {0 [0 -1]  ; north
-                            1 [1 0]   ; east
-                            2 [0 1]   ; south
-                            3 [-1 0]  ; west
-                            4 [-1 -1] ; NW
-                            5 [1 -1]  ; NE
-                            6 [-1 1]  ; SW
-                            7 [1 1]   ; SE
+                            1 [1 -1]  ; NE
+                            2 [1 0]   ; east
+                            3 [1 1]   ; SE
+                            4 [0 1]   ; south
+                            5 [-1 1]  ; SW
+                            6 [-1 0]  ; west
+                            7 [-1 -1] ; NW
                             })
 
 (defn delta-coord [[x y] direction]
@@ -173,6 +197,10 @@
     (update-creature-at-location loc #(beagle/mpop % stack-name))
     val))
 
+(defn- do-stack-push [loc stack-name val]
+  {:pre [(keyword? stack-name) (contains? #{:rstack :dstack} stack-name)]}
+  (update-creature-at-location loc #(beagle/mpush % stack-name val)))
+
 ;;---------- Instruction execution
 
 (defmulti exec (fn [_coord _loc _creature instruction]
@@ -205,7 +233,7 @@
 (defmethod exec :turn [coord loc creature _]
   {:post [(vector? %)]}
   (let [new-direction (util/interpret-to-bound (do-stack-pop loc :dstack) (count direction-delta-table))]
-    ;;FIX(prn :turn :coord coord :new-direction new-direction)
+    (prn :turn :coord coord :new-direction new-direction :creature (:uid creature))
     (when new-direction
       (update-creature-at-location loc
                                    #(assoc % :direction new-direction)))
@@ -241,6 +269,27 @@
     (update-food-at-location loc (fn [_] 0))
     (update-creature-at-location loc
                                  #(update-in % [:energy] + (:food @loc))))
+  coord)
+
+;; Pushes the direction of food around the creature
+(defmethod exec :smell [coord loc creature _]
+  {:post [(vector? %)]}
+  (let [food-neighbors (filter (fn [[_ food]] (pos? food))
+                               (for [d (keys direction-delta-table)]
+                                 (let [c (delta-coord coord d)
+                                       l (location-by-coord c)]
+                                   [d (:food @l)])))
+        food-direction (if (pos? (count food-neighbors))
+                         ;; Food has been found, push the direction it is in
+                         (first (first food-neighbors))
+                         ;; Food not found, push a non-sensical value
+                         (inc (count direction-delta-table)))]
+    (do-stack-push loc :dstack food-direction)
+    (prn :smell
+         :where coord
+         :direction food-direction
+         :creature (:uid creature)
+         :neigh food-neighbors))
   coord)
 
 ;;---------- Cinfo functions
